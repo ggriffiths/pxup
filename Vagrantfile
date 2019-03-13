@@ -24,9 +24,14 @@ Vagrant.configure("2") do |config|
     (0..NODES-1).each do |i|
         config.vm.define "#{PREFIX}-node#{i}" do |node|
             node.vm.hostname = "#{PREFIX}-node#{i}"
-            node.vm.network :private_network, ip: "192.168.30.10#{i}"
+            
+			# Cluster A - Comment to disable/enable
+			node.vm.network :private_network, ip: "192.168.30.10#{i}"
 
-            (0..DISKS-1).each do |d|
+			# Cluster B - Comment to disable/enable
+			#node.vm.network :private_network, ip: "192.168.30.20#{i}"
+            
+			(0..DISKS-1).each do |d|
                 node.vm.provider :libvirt do  |lv|
                     driverletters = ('b'..'z').to_a
                     lv.storage :file, :device => "vd#{driverletters[d]}", :path => "#{PREFIX}-disk-#{i}-#{d}.disk", :size => '1024G'
