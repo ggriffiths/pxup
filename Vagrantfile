@@ -26,10 +26,10 @@ Vagrant.configure("2") do |config|
             node.vm.hostname = "#{PREFIX}-node#{i}"
             
 			# Cluster A - Comment to disable/enable
-			node.vm.network :private_network, ip: "192.168.30.10#{i}"
+			#node.vm.network :private_network, ip: "192.168.30.10#{i}"
 
 			# Cluster B - Comment to disable/enable
-			#node.vm.network :private_network, ip: "192.168.30.20#{i}"
+			node.vm.network :private_network, ip: "192.168.30.20#{i}"
             
 			(0..DISKS-1).each do |d|
                 node.vm.provider :libvirt do  |lv|
