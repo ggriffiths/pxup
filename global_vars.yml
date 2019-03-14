@@ -4,4 +4,4 @@ pullimage: false
 oci: true
 auth: false
 oci_switches: -enable-shared-v4
-shared_secret: newmysecret
+shared_secret: mysecret

@@ -9,7 +9,7 @@ MEMORY = 4096
 CPUS = 2
 
 ### TYPE HERE A PREFIX ###
-PREFIX = "grantpx-b" 
+PREFIX = "grantpx-c" 
 
 Vagrant.configure("2") do |config|
     config.ssh.insert_key = false
@@ -29,7 +29,7 @@ Vagrant.configure("2") do |config|
 			#node.vm.network :private_network, ip: "192.168.30.10#{i}"
 
 			# Cluster B - Comment to disable/enable
-			node.vm.network :private_network, ip: "192.168.30.1#{i}"
+			node.vm.network :private_network, ip: "192.168.30.2#{i}"
             
 			(0..DISKS-1).each do |d|
                 node.vm.provider :libvirt do  |lv|
