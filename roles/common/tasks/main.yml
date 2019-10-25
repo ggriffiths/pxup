@@ -1,22 +1,35 @@
-#- name: update
-#  yum:
-#    name: '*'
-#    state: latest
+- name: disable selinux
+  selinux: state=disabled
+
+- name: update kernels
+  yum: name={{ packages }} state=latest
+  vars:
+    packages:
+      - kernel
+      - kernel-devel
+      - kernel-headers
+  register: kernel
+
+- name: update kernels
+  yum: name='*' state=latest
+
+- name: reboot if kernels where updated
+  reboot:
+  when: kernel.changed
 
 - name: build hosts file
   lineinfile: dest=/etc/hosts regexp='.*{{ item }}$' line="{{ hostvars[item].ansible_eth1.ipv4.address }} {{item}}" state=present
   when: hostvars[item].ansible_eth1.ipv4.address is defined
   with_items: "{{ groups['all'] }}"
 
-- name: disable selinux
-  selinux: state=disabled
-
-- name: disable of selinux - now
-  command: setenforce 0
-  ignore_errors: True
-
 - name: Create /etc/pwx
   file: path=/etc/pwx state=directory
+
+- name: Create /var/lib/kubelet/plugins/com.openstorage.pxd
+  file: path=/var/lib/kubelet/plugins/com.openstorage.pxd state=directory
+
+- name: Create /var/lib/kubelet/plugins/pxd.portworx.com
+  file: path=/var/lib/kubelet/plugins/pxd.portworx.com state=directory
 
 - name: Create /var/lib/portworx
   file: path=/var/lib/portworx state=directory
@@ -27,37 +40,72 @@
 - name: Create /minio
   file: path=/minio state=directory
 
-- name: Install px config
-  copy: src=config.json owner=root group=root dest=/etc/pwx/config.json force=yes
-  when: not oci
-
-- name: Update etcd in px config
-  lineinfile: dest=/etc/pwx/config.json regexp="etcd:http://" line="\"etcd:http://{{ hostvars[groups['all'][0]].ansible_eth1.ipv4.address }}:2379\"" state=present
-  when: not oci
+- name: install epel
+  yum: name=epel-release state=present disable_gpg_check=yes
 
 - name: install utility programs
   yum: name={{ item }} state=present disable_gpg_check=yes
-  with_items:
-    - wget
-    - ntp
-    - screen
-    - epel-release
-    - vim
-    - iptables
-    - iptables-utils
-    - iptables-services
-    - ncurses-term
-    - etcd
-    - kernel-devel
-    - kernel-headers
+  vars:
+    item:
+      - wget
+      - ntp
+      - screen
+      - epel-release
+      - vim
+      - iptables
+      - iptables-utils
+      - iptables-services
+      - ncurses-term
+      - etcd
+      - python
+      - python-devel
+      - kernel-devel
+      - kernel-headers
+      - python36
+      - openssl
+      - openssl-libs
+      - openssl-devel
+      - python-crypto
+      - python-pip
+      - jq
+      - lvm2
+      - yum-utils
+      - device-mapper-persistent-data
 
-- name: install epel  utility programs
-  yum: name={{ item }} state=present disable_gpg_check=yes
-  with_items:
-    - jq
-    - lvm2
-    - yum-utils
-    - device-mapper-persistent-data
+- name: install python packages
+  pip:
+    name:
+      - cryptography
+
+- name: copy cert key
+  copy: src=insecure_ca.key owner=root group=root dest=/etc/ssl/insecure_ca.key
+  when: auth
+
+- name: copy ca
+  copy: src=insecure_ca.crt owner=root group=root dest=/etc/pwx/insecure_ca.crt
+  when: auth
+
+- name: create server key
+  command: openssl genrsa -out /etc/pwx/server.key 2048
+  args:
+    creates: /etc/pwx/server.key
+  when: auth
+
+- name: create server csr
+  openssl_csr:
+    path: /etc/pwx/server.csr
+    privatekey_path: /etc/pwx/server.key
+    common_name: "{{ inventory_hostname }}"
+  when: auth
+
+- name: create certs
+  openssl_certificate:
+    path: /etc/pwx/server.crt
+    csr_path: /etc/pwx/server.csr
+    ownca_path: /etc/pwx/insecure_ca.crt
+    ownca_privatekey_path: /etc/ssl/insecure_ca.key
+    provider: ownca
+  when: auth
 
 - name: remove all old docker
   yum: name={{ item }} state=removed disable_gpg_check=yes
@@ -88,7 +136,7 @@
     - etcd
 
 - name: copy docker image to host
-  copy: src=px.img owner=root group=root dest=/root force=yes 
+  copy: src=px.img owner=root group=root dest=/root force=yes
   when: not pullimage
 
 - name: install image
@@ -99,24 +147,6 @@
   command: docker pull {{ pximage }}
   when: pullimage
 
-- name: determine if it is running already
-  command: docker inspect px-dev
-  register: inspect_result
-  ignore_errors: True
-  when: not oci
-
-- name: stop px-dev
-  command: docker stop px-dev
-  when: inspect_result is succeeded and not oci
-
-- name: rm px-dev
-  command: docker rm px-dev
-  when: inspect_result is succeeded and not oci
-
-- name: Installing and starting Px container. This may take a while
-  command: docker run --name px-dev -d --net=host --privileged=true -e PORTWORX_AUTH_SYSTEM_KEY=mysecret -e PORTWORX_AUTH_JWT_SHAREDSECRET=mysecret -e PORTWORX_AUTH_JWT_ISSUER=openstorage.io -e PORTWORX_AUTH_USERNAME_CLAIM=email -v /etc/hosts:/etc/hosts:ro -v /etc/resolv.conf:/etc/resolv.conf:ro -v /var/lib/portworx:/var/lib/portworx -v /mnt:/mnt:shared -v /run/docker:/run/docker -v /var/lib/osd:/var/lib/osd:shared -v /dev:/dev -v /etc/pwx:/etc/pwx -v /opt/pwx/bin:/export_bin -v /usr/src:/usr/src -v /lib/modules:/lib/modules -v /run/lvm:/run/lvm -v /var/run/docker.sock:/var/run/docker.sock  -v /var/cores:/var/cores -v /usr/src:/usr/src -v /lib/modules:/lib/modules -v /opt/pwx:/opt/pwx -v /etc/systemd/system:/etc/systemd/system -v /host_proc/1/ns:/host_proc/1/ns {{ pximage }}
-  when: not oci
-
 - name: check if px-runc is installed
   stat:
     path: /opt/pwx/bin/px-runc
@@ -124,22 +154,22 @@
 
 - name: Installing OCI image
   command: docker run --entrypoint /runc-entry-point.sh --rm -i --privileged=true -v /opt/pwx:/opt/pwx -v /etc/pwx:/etc/pwx {{ pximage }} --upgrade
-  when: oci
 
 - name: Install px from oci image
   command: /opt/pwx/bin/px-runc  install -c "pxup-cluster" -k etcd:http://{{ hostvars[groups['all'][0]].ansible_eth1.ipv4.address }}:2379 -A {{ oci_switches }}
-  when: oci and not auth and not px_runc_rules.stat.exists
+  when: not auth and not px_runc_rules.stat.exists
+  environment:
+    CSI_ENDPOINT: "unix:///var/lib/kubelet/plugins/pxd.portworx.com/csi.sock"
 
 - name: Install px from oci image
-  command: /opt/pwx/bin/px-runc  install -c "pxup-cluster" -k etcd:http://{{ hostvars[groups['all'][0]].ansible_eth1.ipv4.address }}:2379 -jwt_issuer=openstorage.io  -A {{ oci_switches }}
-  when: oci and auth and not px_runc_rules.stat.exists
+  command: /opt/pwx/bin/px-runc  install -c "pxup-cluster" -k etcd:http://{{ hostvars[groups['all'][0]].ansible_eth1.ipv4.address }}:2379 -jwt_issuer=openstorage.io -A -apirootca=/etc/pwx/insecure_ca.crt -apicert=/etc/pwx/server.crt -apikey=/etc/pwx/server.key  -apidisclientauth {{ oci_switches }}
+  when: auth and not px_runc_rules.stat.exists
   environment:
     PORTWORX_AUTH_JWT_SHAREDSECRET: "{{ shared_secret }}"
     PORTWORX_AUTH_SYSTEM_KEY: "{{ shared_secret }}"
 
 - name: Systemctl start portworx
   service: name=portworx state=restarted enabled=yes
-  when: oci
 
 - name: determine if minio is running already
   command: docker inspect minio

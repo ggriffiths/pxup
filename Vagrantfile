@@ -5,7 +5,7 @@
 # If you change the number of drives, you will need to update roles/common/files/config.json
 NODES = 3
 DISKS = 3
-MEMORY = 4096
+MEMORY = 8196
 CPUS = 2
 
 ### TYPE HERE A PREFIX ###
@@ -14,6 +14,7 @@ PREFIX = "grantpx"
 Vagrant.configure("2") do |config|
     config.ssh.insert_key = false
     config.vm.box = "centos/7"
+	config.vm.synced_folder '.', '/vagrant', disabled: true
 
     # Override
     config.vm.provider :libvirt do |v,override|
@@ -24,9 +25,7 @@ Vagrant.configure("2") do |config|
     (0..NODES-1).each do |i|
         config.vm.define "#{PREFIX}-node#{i}" do |node|
             node.vm.hostname = "#{PREFIX}-node#{i}"
-            
-			# Cluster A - Comment to disable/enable
-			node.vm.network :private_network, ip: "192.168.30.10#{i}"
+            node.vm.network :private_network, ip: "192.168.40.3#{i}"
 
 			# Cluster B - Comment to disable/enable
 			#node.vm.network :private_network, ip: "192.168.30.20#{i}"
